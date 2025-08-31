@@ -57,21 +57,28 @@ async def log_members():
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     last_checks[channel_id][member_id] = current_time
-            # Build log message
-            log = f"{timestamp} - Event: {event_names[channel_id]} (Channel: {active_channel.name})\nParticipants:\n"
+            # Build Propriété: Build embed
+            embed = discord.Embed(
+                title=f"Event: {event_names[channel_id]}",
+                description=f"**Channel**: {active_channel.name}\n**Time**: {timestamp}",
+                color=discord.Color.blue(),
+                timestamp=datetime.datetime.now()
+            )
             members = active_channel.members
             if members:
+                participant_list = ""
                 for member in members:
                     total_seconds = member_times.get(channel_id, {}).get(member.id, 0)
                     hours, remainder = divmod(int(total_seconds), 3600)
                     minutes, seconds = divmod(remainder, 60)
                     time_str = f"{hours}h {minutes}m {seconds}s"
-                    log += f" {member.name}#{member.discriminator}: {time_str}\n"
+                    participant_list += f"{member.display_name}: {time_str}\n"
+                embed.add_field(name="Participants", value=participant_list, inline=False)
             else:
-                log += " None\n"
+                embed.add_field(name="Participants", value="No participants", inline=False)
             # Send to dedicated Discord text channel
             try:
-                await log_channel.send(log)
+                await log_channel.send(embed=embed)
             except discord.errors.Forbidden:
                 print(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
 
@@ -96,11 +103,17 @@ async def start_logging(ctx):
                     current_time = time.time()
                     for member in active_voice_channels[channel_id].members:
                         last_checks[channel_id][member.id] = current_time
-                    # Notify logging channel
+                    # Notify logging channel with embed
                     log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
                     if log_channel:
                         try:
-                            await log_channel.send(f"Logging started for event: {event_name} in {active_voice_channels[channel_id].name}")
+                            embed = discord.Embed(
+                                title="Logging Started",
+                                description=f"**Event**: {event_name}\n**Channel**: {active_voice_channels[channel_id].name}",
+                                color=discord.Color.green(),
+                                timestamp=datetime.datetime.now()
+                            )
+                            await log_channel.send(embed=embed)
                         except discord.errors.Forbidden:
                             await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
                             return
@@ -131,11 +144,17 @@ async def stop_logging(ctx):
                 if bot.get_user(member_id) in active_voice_channels[channel_id].members:
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
-            # Notify logging channel
+            # Notify logging channel with embed
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
             if log_channel:
                 try:
-                    await log_channel.send(f"Logging stopped for event: {event_names[channel_id]} in {active_voice_channels[channel_id].name}")
+                    embed = discord.Embed(
+                        title="Logging Stopped",
+                        description=f"**Event**: {event_names[channel_id]}\n**Channel**: {active_voice_channels[channel_id].name}",
+                        color=discord.Color.red(),
+                        timestamp=datetime.datetime.now()
+                    )
+                    await log_channel.send(embed=embed)
                 except discord.errors.Forbidden:
                     await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
             else:
