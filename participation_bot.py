@@ -8,7 +8,6 @@ intents = discord.Intents.default()
 intents.members = True
 intents.voice_states = True
 intents.message_content = True
-
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 LOG_CHANNEL_ID = os.getenv('TEXT_CHANNEL_ID')  # Fetch from environment variable
@@ -45,14 +44,12 @@ async def log_members():
     if active_voice_channel and event_name:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         current_time = time.time()
-        
         # Update times for members still in the channel
         for member_id in list(last_check.keys()):
             if bot.get_user(member_id) in active_voice_channel.members:
                 duration = current_time - last_check[member_id]
-                member_times[member_id] = member_times.get(member.id, 0) + duration
-                last_check[member.id] = current_time
-        
+                member_times[member_id] = member_times.get(member_id, 0) + duration
+                last_check[member_id] = current_time
         # Build log message
         log = f"{timestamp} - Event: {event_name} (Channel: {active_voice_channel.name})\nParticipants:\n"
         members = active_voice_channel.members
@@ -62,10 +59,9 @@ async def log_members():
                 hours, remainder = divmod(int(total_seconds), 3600)
                 minutes, seconds = divmod(remainder, 60)
                 time_str = f"{hours}h {minutes}m {seconds}s"
-                log += f"  {member.name}#{member.discriminator}: {time_str}\n"
+                log += f" {member.name}#{member.discriminator}: {time_str}\n"
         else:
-            log += "  None\n"
-        
+            log += " None\n"
         # Send to dedicated Discord text channel
         log_channel = bot.get_channel(int(LOG_CHANNEL_ID))  # Convert to int for channel ID
         if log_channel:
@@ -81,10 +77,8 @@ async def start_logging(ctx):
     if ctx.author.voice and ctx.author.voice.channel:
         active_voice_channel = ctx.author.voice.channel
         await ctx.send("Please provide the event name for this logging session.")
-        
         def check(m):
             return m.author == ctx.author and m.channel == ctx.channel
-        
         try:
             msg = await bot.wait_for('message', check=check, timeout=60.0)
             event_name = msg.content.strip()
@@ -96,6 +90,12 @@ async def start_logging(ctx):
                 current_time = time.time()
                 for member in active_voice_channel.members:
                     last_check[member.id] = current_time
+                # Notify logging channel
+                log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+                if log_channel:
+                    await log_channel.send(f"Logging started for event: {event_name} in {active_voice_channel.name}")
+                else:
+                    print(f"Text channel ID {LOG_CHANNEL_ID} not found")
                 if not log_members.is_running():
                     log_members.start()
                     await ctx.send(f"Bot is running and logging started for {active_voice_channel.name} (Event: {event_name}, every 30 minutes). Everything is set up correctly!")
@@ -116,8 +116,14 @@ async def stop_logging(ctx):
         current_time = time.time()
         for member_id in list(last_check.keys()):
             if bot.get_user(member_id) in active_voice_channel.members:
-                duration = current_time - last_check[member.id]
-                member_times[member.id] = member_times.get(member.id, 0) + duration
+                duration = current_time - last_check[member_id]
+                member_times[member_id] = member_times.get(member_id, 0) + duration
+        # Notify logging channel
+        log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+        if log_channel:
+            await log_channel.send(f"Logging stopped for event: {event_name} in {active_voice_channel.name}")
+        else:
+            print(f"Text channel ID {LOG_CHANNEL_ID} not found")
         log_members.stop()
         active_voice_channel = None
         event_name = None
