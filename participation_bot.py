@@ -38,7 +38,7 @@ async def on_voice_state_update(member, before, after):
                 if member.id in last_checks.get(channel_id, {}):
                     duration = current_time - last_checks[channel_id][member.id]
                     member_times[channel_id][member.id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
-                    del last_checks[channel_id][member.id]
+                    del last_checks[channel_id][member_id]
 
 @tasks.loop(minutes=30)
 async def log_members():
@@ -57,7 +57,7 @@ async def log_members():
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     last_checks[channel_id][member_id] = current_time
-            # Build Propriété: Build embed
+            # Build embed
             embed = discord.Embed(
                 title=f"Event: {event_names[channel_id]}",
                 description=f"**Channel**: {active_channel.name}\n**Time**: {timestamp}",
@@ -144,8 +144,33 @@ async def stop_logging(ctx):
                 if bot.get_user(member_id) in active_voice_channels[channel_id].members:
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
-            # Notify logging channel with embed
+            # Build summary embed
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+            if log_channel:
+                try:
+                    summary_embed = discord.Embed(
+                        title="Session Summary",
+                        description=f"**Event**: {event_names[channel_id]}\n**Channel**: {active_voice_channels[channel_id].name}",
+                        color=discord.Color.orange(),
+                        timestamp=datetime.datetime.now()
+                    )
+                    participant_summary = ""
+                    total_participants = len(member_times.get(channel_id, {}))
+                    for member_id, total_seconds in member_times.get(channel_id, {}).items():
+                        member = await bot.fetch_user(member_id)
+                        hours, remainder = divmod(int(total_seconds), 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        time_str = f"{hours}h {minutes}m {seconds}s"
+                        participant_summary += f"{member.display_name}: {time_str}\n"
+                    summary_embed.add_field(name=f"Participants ({total_participants})", value=participant_summary or "No participants", inline=False)
+                    await log_channel.send(embed=summary_embed)
+                except discord.errors.Forbidden:
+                    await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
+                except discord.errors.HTTPException:
+                    await ctx.send("Error: Failed to fetch user data for summary.")
+            else:
+                await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
+            # Notify logging channel with stop embed
             if log_channel:
                 try:
                     embed = discord.Embed(
@@ -157,8 +182,6 @@ async def stop_logging(ctx):
                     await log_channel.send(embed=embed)
                 except discord.errors.Forbidden:
                     await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
-            else:
-                await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
             # Clean up
             del active_voice_channels[channel_id]
             del event_names[channel_id]
