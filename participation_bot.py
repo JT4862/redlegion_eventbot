@@ -3,6 +3,7 @@ from discord.ext import tasks, commands
 import datetime
 import time
 import os
+import asyncio
 
 intents = discord.Intents.default()
 intents.members = True
@@ -14,10 +15,11 @@ LOG_CHANNEL_ID = os.getenv('TEXT_CHANNEL_ID')  # Fetch from environment variable
 if not LOG_CHANNEL_ID:
     raise ValueError("TEXT_CHANNEL_ID environment variable not set")
 
-active_voice_channel = None  # Store the voice channel to log
-event_name = None  # Store the event name
-member_times = {}  # Track member participation times
-last_check = {}  # Store last seen time for each member
+active_voice_channels = {}  # Dict of channel_id: channel object
+event_names = {}  # Dict of channel_id: event_name
+member_times = {}  # Dict of channel_id: {member_id: duration}
+last_checks = {}  # Dict of channel_id: {member_id: last_seen_time}
+start_logging_lock = asyncio.Lock()  # Lock to prevent concurrent start_logging executions
 
 @bot.event
 async def on_ready():
@@ -25,112 +27,130 @@ async def on_ready():
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    global active_voice_channel, member_times, last_check
-    if active_voice_channel and log_members.is_running():
-        current_time = time.time()
-        # Member joins the active voice channel
-        if after.channel == active_voice_channel and before.channel != active_voice_channel:
-            last_check[member.id] = current_time
-        # Member leaves the active voice channel
-        elif before.channel == active_voice_channel and after.channel != active_voice_channel:
-            if member.id in last_check:
-                duration = current_time - last_check[member.id]
-                member_times[member.id] = member_times.get(member.id, 0) + duration
-                del last_check[member.id]
+    for channel_id, active_channel in active_voice_channels.items():
+        if active_channel and log_members.is_running():
+            current_time = time.time()
+            # Member joins the active voice channel
+            if after.channel == active_channel and before.channel != active_channel:
+                last_checks[channel_id][member.id] = current_time
+            # Member leaves the active voice channel
+            elif before.channel == active_channel and after.channel != active_channel:
+                if member.id in last_checks.get(channel_id, {}):
+                    duration = current_time - last_checks[channel_id][member.id]
+                    member_times[channel_id][member.id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
+                    del last_checks[channel_id][member.id]
 
 @tasks.loop(minutes=30)
 async def log_members():
-    global active_voice_channel, event_name, member_times, last_check
-    if active_voice_channel and event_name:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        current_time = time.time()
-        # Update times for members still in the channel
-        for member_id in list(last_check.keys()):
-            if bot.get_user(member_id) in active_voice_channel.members:
-                duration = current_time - last_check[member_id]
-                member_times[member_id] = member_times.get(member_id, 0) + duration
-                last_check[member_id] = current_time
-        # Build log message
-        log = f"{timestamp} - Event: {event_name} (Channel: {active_voice_channel.name})\nParticipants:\n"
-        members = active_voice_channel.members
-        if members:
-            for member in members:
-                total_seconds = member_times.get(member.id, 0)
-                hours, remainder = divmod(int(total_seconds), 3600)
-                minutes, seconds = divmod(remainder, 60)
-                time_str = f"{hours}h {minutes}m {seconds}s"
-                log += f" {member.name}#{member.discriminator}: {time_str}\n"
-        else:
-            log += " None\n"
-        # Send to dedicated Discord text channel
-        log_channel = bot.get_channel(int(LOG_CHANNEL_ID))  # Convert to int for channel ID
-        if log_channel:
-            await log_channel.send(log)
-        else:
-            print(f"Text channel ID {LOG_CHANNEL_ID} not found")
-    else:
-        print("No active voice channel or event name set for logging")
+    log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+    if not log_channel:
+        print(f"Text channel ID {LOG_CHANNEL_ID} not found")
+        return
+
+    for channel_id, active_channel in active_voice_channels.items():
+        if active_channel and channel_id in event_names:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            current_time = time.time()
+            # Update times for members still in the channel
+            for member_id in list(last_checks.get(channel_id, {}).keys()):
+                if bot.get_user(member_id) in active_channel.members:
+                    duration = current_time - last_checks[channel_id][member_id]
+                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
+                    last_checks[channel_id][member_id] = current_time
+            # Build log message
+            log = f"{timestamp} - Event: {event_names[channel_id]} (Channel: {active_channel.name})\nParticipants:\n"
+            members = active_channel.members
+            if members:
+                for member in members:
+                    total_seconds = member_times.get(channel_id, {}).get(member.id, 0)
+                    hours, remainder = divmod(int(total_seconds), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    time_str = f"{hours}h {minutes}m {seconds}s"
+                    log += f" {member.name}#{member.discriminator}: {time_str}\n"
+            else:
+                log += " None\n"
+            # Send to dedicated Discord text channel
+            try:
+                await log_channel.send(log)
+            except discord.errors.Forbidden:
+                print(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
 
 @bot.command()
 async def start_logging(ctx):
-    global active_voice_channel, event_name, member_times, last_check
-    if ctx.author.voice and ctx.author.voice.channel:
-        active_voice_channel = ctx.author.voice.channel
-        await ctx.send("Please provide the event name for this logging session.")
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel
-        try:
-            msg = await bot.wait_for('message', check=check, timeout=60.0)
-            event_name = msg.content.strip()
-            if event_name:
-                # Reset tracking for new logging session
-                member_times = {}
-                last_check = {}
-                # Initialize current members
-                current_time = time.time()
-                for member in active_voice_channel.members:
-                    last_check[member.id] = current_time
-                # Notify logging channel
-                log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
-                if log_channel:
-                    await log_channel.send(f"Logging started for event: {event_name} in {active_voice_channel.name}")
+    async with start_logging_lock:  # Prevent concurrent executions
+        if ctx.author.voice and ctx.author.voice.channel:
+            channel_id = ctx.author.voice.channel.id
+            active_voice_channels[channel_id] = ctx.author.voice.channel
+            await ctx.send("Please provide the event name for this logging session.")
+            def check(m):
+                return m.author == ctx.author and m.channel == ctx.channel
+            try:
+                msg = await bot.wait_for('message', check=check, timeout=60.0)
+                event_name = msg.content.strip()
+                if event_name:
+                    # Initialize tracking for this channel
+                    event_names[channel_id] = event_name
+                    member_times[channel_id] = {}
+                    last_checks[channel_id] = {}
+                    # Initialize current members
+                    current_time = time.time()
+                    for member in active_voice_channels[channel_id].members:
+                        last_checks[channel_id][member.id] = current_time
+                    # Notify logging channel
+                    log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+                    if log_channel:
+                        try:
+                            await log_channel.send(f"Logging started for event: {event_name} in {active_voice_channels[channel_id].name}")
+                        except discord.errors.Forbidden:
+                            await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
+                            return
+                    else:
+                        await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
+                        return
+                    if not log_members.is_running():
+                        log_members.start()
+                        await ctx.send(f"Bot is running and logging started for {active_voice_channels[channel_id].name} (Event: {event_name}, every 30 minutes).")
+                    else:
+                        await ctx.send(f"Logging started for {active_voice_channels[channel_id].name} (Event: {event_name}).")
                 else:
-                    print(f"Text channel ID {LOG_CHANNEL_ID} not found")
-                if not log_members.is_running():
-                    log_members.start()
-                    await ctx.send(f"Bot is running and logging started for {active_voice_channel.name} (Event: {event_name}, every 30 minutes). Everything is set up correctly!")
-                else:
-                    await ctx.send(f"Logging is already running, now updated to log {active_voice_channel.name} (Event: {event_name}). Bot is running and everything is set up correctly!")
-            else:
-                await ctx.send("Event name cannot be empty. Please try again.")
-        except discord.ext.commands.errors.CommandInvokeError:
-            await ctx.send("Timed out waiting for event name. Please try again.")
-    else:
-        await ctx.send("You must be in a voice channel to start logging.")
+                    await ctx.send("Event name cannot be empty. Please try again.")
+            except discord.ext.commands.errors.CommandInvokeError:
+                await ctx.send("Timed out waiting for event name. Please try again.")
+                del active_voice_channels[channel_id]  # Clean up if timed out
+        else:
+            await ctx.send("You must be in a voice channel to start logging.")
 
 @bot.command()
 async def stop_logging(ctx):
-    global active_voice_channel, event_name, member_times, last_check
-    if log_members.is_running():
-        # Update times for members still in channel before stopping
-        current_time = time.time()
-        for member_id in list(last_check.keys()):
-            if bot.get_user(member_id) in active_voice_channel.members:
-                duration = current_time - last_check[member_id]
-                member_times[member_id] = member_times.get(member_id, 0) + duration
-        # Notify logging channel
-        log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
-        if log_channel:
-            await log_channel.send(f"Logging stopped for event: {event_name} in {active_voice_channel.name}")
+    if ctx.author.voice and ctx.author.voice.channel:
+        channel_id = ctx.author.voice.channel.id
+        if channel_id in active_voice_channels:
+            # Update times for members still in channel before stopping
+            current_time = time.time()
+            for member_id in list(last_checks.get(channel_id, {}).keys()):
+                if bot.get_user(member_id) in active_voice_channels[channel_id].members:
+                    duration = current_time - last_checks[channel_id][member_id]
+                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
+            # Notify logging channel
+            log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+            if log_channel:
+                try:
+                    await log_channel.send(f"Logging stopped for event: {event_names[channel_id]} in {active_voice_channels[channel_id].name}")
+                except discord.errors.Forbidden:
+                    await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
+            else:
+                await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
+            # Clean up
+            del active_voice_channels[channel_id]
+            del event_names[channel_id]
+            del member_times[channel_id]
+            del last_checks[channel_id]
+            if not active_voice_channels:  # Stop task if no channels are being logged
+                log_members.stop()
+            await ctx.send("Participation logging stopped for this channel.")
         else:
-            print(f"Text channel ID {LOG_CHANNEL_ID} not found")
-        log_members.stop()
-        active_voice_channel = None
-        event_name = None
-        member_times = {}
-        last_check = {}
-        await ctx.send("Participation logging stopped.")
+            await ctx.send("No logging is active for this voice channel.")
     else:
-        await ctx.send("Logging is not running.")
+        await ctx.send("You must be in a voice channel to stop logging.")
 
 bot.run(os.getenv('DISCORD_TOKEN'))  # Fetch from environment variable
