@@ -2,6 +2,7 @@ import discord
 from discord.ext import tasks, commands
 import datetime
 import time
+import os
 
 intents = discord.Intents.default()
 intents.members = True
@@ -9,7 +10,10 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-LOG_CHANNEL_ID = YOUR_TEXT_CHANNEL_ID  # Replace with dedicated text channel ID
+LOG_CHANNEL_ID = os.getenv('TEXT_CHANNEL_ID')  # Fetch from environment variable
+if not LOG_CHANNEL_ID:
+    raise ValueError("TEXT_CHANNEL_ID environment variable not set")
+
 active_voice_channel = None  # Store the voice channel to log
 event_name = None  # Store the event name
 member_times = {}  # Track member participation times
@@ -45,8 +49,8 @@ async def log_members():
         for member_id in list(last_check.keys()):
             if bot.get_user(member_id) in active_voice_channel.members:
                 duration = current_time - last_check[member_id]
-                member_times[member_id] = member_times.get(member_id, 0) + duration
-                last_check[member_id] = current_time
+                member_times[member_id] = member_times.get(member.id, 0) + duration
+                last_check[member.id] = current_time
         
         # Build log message
         log = f"{timestamp} - Event: {event_name} (Channel: {active_voice_channel.name})\nParticipants:\n"
@@ -62,7 +66,7 @@ async def log_members():
             log += "  None\n"
         
         # Send to dedicated Discord text channel
-        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        log_channel = bot.get_channel(int(LOG_CHANNEL_ID))  # Convert to int for channel ID
         if log_channel:
             await log_channel.send(log)
         else:
@@ -111,8 +115,8 @@ async def stop_logging(ctx):
         current_time = time.time()
         for member_id in list(last_check.keys()):
             if bot.get_user(member_id) in active_voice_channel.members:
-                duration = current_time - last_check[member_id]
-                member_times[member_id] = member_times.get(member_id, 0) + duration
+                duration = current_time - last_check[member.id]
+                member_times[member.id] = member_times.get(member.id, 0) + duration
         log_members.stop()
         active_voice_channel = None
         event_name = None
@@ -122,4 +126,4 @@ async def stop_logging(ctx):
     else:
         await ctx.send("Logging is not running.")
 
-bot.run('YOUR_BOT_TOKEN')  # Replace with your bot token
+bot.run(os.getenv('DISCORD_TOKEN'))  # Fetch from environment variable
