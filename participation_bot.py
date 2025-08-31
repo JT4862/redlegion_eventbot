@@ -40,7 +40,7 @@ async def on_voice_state_update(member, before, after):
                     member_times[channel_id][member.id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
                     del last_checks[channel_id][member_id]
 
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=5)
 async def log_members():
     log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
     if not log_channel:
