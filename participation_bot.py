@@ -7,6 +7,7 @@ import os
 intents = discord.Intents.default()
 intents.members = True
 intents.voice_states = True
+intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
