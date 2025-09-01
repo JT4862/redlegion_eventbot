@@ -16,7 +16,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 LOG_CHANNEL_ID = os.getenv('TEXT_CHANNEL_ID')
 if not LOG_CHANNEL_ID:
     raise ValueError("TEXT_CHANNEL_ID environment variable not set")
-ORG_ROLE_ID = "1143413611184795658"  # Reverted to original role ID
+ORG_ROLE_ID = "1143413611184795658"  # Verify this matches your server's OrgMember role ID
 
 active_voice_channels = {}
 event_names = {}
@@ -166,6 +166,7 @@ async def stop_logging(ctx):
     if ctx.author.voice and ctx.author.voice.channel:
         channel_id = ctx.author.voice.channel.id
         print(f"Active channels: {active_voice_channels}")  # Debug output
+        print(f"Channel ID: {channel_id}")  # Additional debug
         if channel_id in active_voice_channels:
             current_time = time.time()
             for member_id in list(last_checks.get(channel_id, {}).keys()):
@@ -204,7 +205,7 @@ async def stop_logging(ctx):
                     if org_summary:
                         summary_embed.add_field(name=f"Org Members ({total_org})", value=org_summary, inline=False)
                     if non_org_summary:
-                        summary_embed.add_field(name=f"Non-Org Members ({total_non_org})", value=non_org_summary, inline=False)
+                        summary_embed.add_field(name=f"Non-Org Members ({total_org})", value=non_org_summary, inline=False)
                     if not org_summary and not non_org_participants:
                         summary_embed.add_field(name="Participants", value="No participants", inline=False)
                     await log_channel.send(embed=summary_embed)
@@ -253,3 +254,9 @@ async def pick_winner(ctx):
         await ctx.send("No entries available for this month.")
         conn.close()
         return
+    winner_id = max(entries, key=lambda x: x[1])[0]  # Simplistic winner with most entries
+    winner = await bot.fetch_user(winner_id)
+    await ctx.send(f"Congratulations {winner.display_name}! You are the winner for {current_month} with {max(entries, key=lambda x: x[1])[1]} entries!")
+    conn.close()
+
+bot.run(os.getenv('DISCORD_TOKEN'))
