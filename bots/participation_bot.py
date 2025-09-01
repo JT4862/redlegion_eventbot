@@ -34,49 +34,62 @@ def has_org_role():
 
 # Initialize database
 def init_db():
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS entries (
-        user_id TEXT,
-        month_year TEXT,
-        entry_count INTEGER DEFAULT 0,
-        PRIMARY KEY (user_id, month_year)
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS events (
-        event_id SERIAL PRIMARY KEY,
-        channel_id TEXT,
-        channel_name TEXT,
-        event_name TEXT,
-        start_time TEXT,
-        end_time TEXT
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS participation (
-        channel_id TEXT,
-        member_id TEXT,
-        username TEXT,
-        duration REAL,
-        is_org_member BOOLEAN,
-        UNIQUE (channel_id, member_id)
-    )''')
-    conn.commit()
-    conn.close()
+    try:
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS entries (
+            user_id TEXT,
+            month_year TEXT,
+            entry_count INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, month_year)
+        )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS events (
+            event_id SERIAL PRIMARY KEY,
+            channel_id TEXT,
+            channel_name TEXT,
+            event_name TEXT,
+            start_time TEXT,
+            end_time TEXT
+        )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS participation (
+            channel_id TEXT,
+            member_id TEXT,
+            username TEXT,
+            duration REAL,
+            is_org_member BOOLEAN,
+            UNIQUE (channel_id, member_id)
+        )''')
+        conn.commit()
+        conn.close()
+    except psycopg2.OperationalError as e:
+        print(f"Failed to initialize database: {e}")
+        raise
 
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
-    init_db()
+    try:
+        init_db()
+    except Exception as e:
+        print(f"Error during database initialization: {e}")
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    for channel_id, active_channel in active_voice_channels.items():
-        if active_channel and log_members.is_running():
+    for channel_id, active_channel in list(active_voice_channels.items()):
+        if active_channel:
             current_time = time.time()
             if after.channel == active_channel and before.channel != active_channel:
+                # Member joins the active channel
+                last_checks.setdefault(channel_id, {})
                 last_checks[channel_id][member.id] = current_time
+                print(f"Member {member.display_name} joined channel {active_channel.name} at {current_time}")
             elif before.channel == active_channel and after.channel != active_channel:
+                # Member leaves the active channel
                 if member.id in last_checks.get(channel_id, {}):
                     duration = current_time - last_checks[channel_id][member.id]
+                    member_times.setdefault(channel_id, {})
                     member_times[channel_id][member.id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
+                    print(f"Member {member.display_name} left channel {active_channel.name}, adding {duration:.2f}s to total time: {member_times[channel_id][member.id]:.2f}s")
                     del last_checks[channel_id][member.id]
 
 @tasks.loop(minutes=5)
@@ -92,8 +105,10 @@ async def log_members():
             for member_id in list(last_checks.get(channel_id, {}).keys()):
                 if bot.get_user(member_id) in active_channel.members:
                     duration = current_time - last_checks[channel_id][member_id]
+                    member_times.setdefault(channel_id, {})
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     last_checks[channel_id][member_id] = current_time
+                    print(f"Periodic update for {bot.get_user(member_id).display_name} in {active_channel.name}: added {duration:.2f}s, total {member_times[channel_id][member_id]:.2f}s")
             embed = discord.Embed(
                 title=f"Event: {event_names[channel_id]}",
                 description=f"**Channel**: {active_channel.name}\n**Time**: {timestamp}",
@@ -148,12 +163,18 @@ async def start_logging(ctx):
                 current_time = time.time()
                 for member in active_voice_channels[channel_id].members:
                     last_checks[channel_id][member.id] = current_time
-                conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-                c = conn.cursor()
-                c.execute("INSERT INTO events (channel_id, channel_name, event_name, start_time) VALUES (%s, %s, %s, %s)",
-                          (str(channel_id), ctx.author.voice.channel.name, event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                conn.commit()
-                conn.close()
+                    print(f"Started tracking {member.display_name} in {ctx.author.voice.channel.name} at {current_time}")
+                try:
+                    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+                    c = conn.cursor()
+                    c.execute("INSERT INTO events (channel_id, channel_name, event_name, start_time) VALUES (%s, %s, %s, %s)",
+                              (str(channel_id), ctx.author.voice.channel.name, event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                    conn.commit()
+                    conn.close()
+                except psycopg2.OperationalError as e:
+                    await ctx.send(f"Failed to connect to database: {e}")
+                    del active_voice_channels[channel_id]
+                    return
                 log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
                 if log_channel:
                     try:
@@ -190,26 +211,28 @@ async def stop_logging(ctx):
         print(f"Channel ID: {channel_id}")
         if channel_id in active_voice_channels:
             current_time = time.time()
-            conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-            c = conn.cursor()
-            for member_id in list(last_checks.get(channel_id, {}).keys()):
-                member = ctx.guild.get_member(member_id)
-                if member:
-                    total_duration = member_times.get(channel_id, {}).get(member_id, 0)
-                    if member.id in last_checks.get(channel_id, {}):
-                        final_duration = current_time - last_checks[channel_id][member_id]
-                        total_duration += final_duration
-                    is_org_member = str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]
-                    c.execute("""
-                        INSERT INTO participation (channel_id, member_id, username, duration, is_org_member)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (channel_id, member_id)
-                        DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username, is_org_member = EXCLUDED.is_org_member
-                    """, (str(channel_id), str(member_id), member.display_name, total_duration, is_org_member))
-            c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
-                      (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
-            conn.commit()
-            conn.close()
+            try:
+                conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+                c = conn.cursor()
+                for member_id in list(last_checks.get(channel_id, {}).keys()):
+                    member = ctx.guild.get_member(member_id)
+                    if member:
+                        total_duration = member_times.get(channel_id, {}).get(member_id, 0)
+                        is_org_member = str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]
+                        c.execute("""
+                            INSERT INTO participation (channel_id, member_id, username, duration, is_org_member)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (channel_id, member_id)
+                            DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username, is_org_member = EXCLUDED.is_org_member
+                        """, (str(channel_id), str(member_id), member.display_name, total_duration, is_org_member))
+                        print(f"Saved {member.display_name} in {active_voice_channels[channel_id].name} with total duration {total_duration:.2f}s")
+                c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
+                          (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
+                conn.commit()
+                conn.close()
+            except psycopg2.OperationalError as e:
+                await ctx.send(f"Failed to connect to database: {e}")
+                return
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
             if log_channel:
                 try:
@@ -237,12 +260,16 @@ async def stop_logging(ctx):
 @bot.command()
 @has_org_role()
 async def pick_winner(ctx):
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-    c = conn.cursor()
-    current_month = datetime.datetime.now().strftime("%B-%Y")
-    c.execute("SELECT user_id, entry_count FROM entries WHERE month_year = %s", (current_month,))
-    entries = c.fetchall()
-    conn.close()
+    try:
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        c = conn.cursor()
+        current_month = datetime.datetime.now().strftime("%B-%Y")
+        c.execute("SELECT user_id, entry_count FROM entries WHERE month_year = %s", (current_month,))
+        entries = c.fetchall()
+        conn.close()
+    except psycopg2.OperationalError as e:
+        await ctx.send(f"Failed to connect to database: {e}")
+        return
     if not entries:
         await ctx.send("No entries available for this month.")
         return
