@@ -56,7 +56,7 @@ async def on_voice_state_update(member, before, after):
                 if member.id in last_checks.get(channel_id, {}):
                     duration = current_time - last_checks[channel_id][member.id]
                     member_times[channel_id][member.id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
-                    del last_checks[channel_id][member_id]
+                    del last_checks[channel_id][member.id]
 
 @tasks.loop(minutes=5)
 async def log_members():
@@ -72,7 +72,7 @@ async def log_members():
             for member_id in list(last_checks.get(channel_id, {}).keys()):
                 if bot.get_user(member_id) in active_channel.members:
                     duration = current_time - last_checks[channel_id][member_id]
-                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
+                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     last_checks[channel_id][member_id] = current_time
             embed = discord.Embed(
                 title=f"Event: {event_names[channel_id]}",
@@ -170,9 +170,10 @@ async def stop_logging(ctx):
         if channel_id in active_voice_channels:
             current_time = time.time()
             for member_id in list(last_checks.get(channel_id, {}).keys()):
-                if bot.get_user(member_id) in active_voice_channels[channel_id].members:
+                member = active_channel.get_member(member_id)  # Fix: Use member_id to get member
+                if member:
                     duration = current_time - last_checks[channel_id][member_id]
-                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member.id, 0) + duration
+                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
             if log_channel:
                 try:
