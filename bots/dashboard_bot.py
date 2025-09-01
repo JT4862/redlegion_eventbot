@@ -28,7 +28,7 @@ def dashboard():
             FROM events e
             JOIN participation p ON e.channel_id = p.channel_id
             WHERE e.end_time IS NOT NULL
-            ORDER BY e.channel_name, e.start_time DESC
+            ORDER BY p.is_org_member DESC, e.channel_name, e.start_time DESC
         ''')
         data = c.fetchall()
         conn.close()

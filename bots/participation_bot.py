@@ -97,14 +97,28 @@ async def log_members():
     for channel_id, active_channel in list(active_voice_channels.items()):
         if active_channel and channel_id in event_names:
             current_time = time.time()
-            for member_id in list(last_checks.get(channel_id, {}).keys()):
-                member = bot.get_user(member_id)
-                if member in active_channel.members:
-                    duration = current_time - last_checks[channel_id][member_id]
-                    member_times.setdefault(channel_id, {})
-                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
-                    last_checks[channel_id][member_id] = current_time
-                    print(f"Periodic update for {member.display_name} in {active_channel.name}: added {duration:.2f}s, total {member_times[channel_id][member_id]:.2f}s")
+            try:
+                conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+                c = conn.cursor()
+                for member_id in list(last_checks.get(channel_id, {}).keys()):
+                    member = bot.get_user(member_id)
+                    if member in active_channel.members:
+                        duration = current_time - last_checks[channel_id][member_id]
+                        member_times.setdefault(channel_id, {})
+                        member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
+                        last_checks[channel_id][member_id] = current_time
+                        print(f"Periodic update for {member.display_name} in {active_channel.name}: added {duration:.2f}s, total {member_times[channel_id][member_id]:.2f}s")
+                        is_org_member = str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]
+                        c.execute("""
+                            INSERT INTO participation (channel_id, member_id, username, duration, is_org_member)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (channel_id, member_id)
+                            DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username, is_org_member = EXCLUDED.is_org_member
+                        """, (str(channel_id), str(member_id), member.display_name, member_times[channel_id][member_id], is_org_member))
+                conn.commit()
+                conn.close()
+            except psycopg2.OperationalError as e:
+                print(f"Database error in log_members: {e}")
 
 @bot.command()
 @has_org_role()
