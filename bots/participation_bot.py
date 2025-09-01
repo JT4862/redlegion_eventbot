@@ -92,15 +92,10 @@ async def on_voice_state_update(member, before, after):
                     print(f"Member {member.display_name} left channel {active_channel.name}, adding {duration:.2f}s to total time: {member_times[channel_id][member.id]:.2f}s")
                     del last_checks[channel_id][member.id]
 
-@tasks.loop(minutes=5)
+@tasks.loop(seconds=60)
 async def log_members():
-    log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
-    if not log_channel:
-        print(f"Text channel ID {LOG_CHANNEL_ID} not found")
-        return
     for channel_id, active_channel in list(active_voice_channels.items()):
         if active_channel and channel_id in event_names:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_time = time.time()
             for member_id in list(last_checks.get(channel_id, {}).keys()):
                 member = bot.get_user(member_id)
@@ -110,37 +105,6 @@ async def log_members():
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     last_checks[channel_id][member_id] = current_time
                     print(f"Periodic update for {member.display_name} in {active_channel.name}: added {duration:.2f}s, total {member_times[channel_id][member_id]:.2f}s")
-            embed = discord.Embed(
-                title=f"Event: {event_names[channel_id]}",
-                description=f"**Channel**: {active_channel.name}\n**Time**: {timestamp}",
-                color=discord.Color.blue(),
-                timestamp=datetime.datetime.now()
-            )
-            members = active_channel.members
-            org_participants = ""
-            non_org_participants = ""
-            if members:
-                for member in members:
-                    total_seconds = member_times.get(channel_id, {}).get(member.id, 0)
-                    hours, remainder = divmod(int(total_seconds), 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    time_str = f"{hours}h {minutes}m {seconds}s"
-                    if str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]:
-                        org_participants += f"{member.display_name}: {time_str}\n"
-                    else:
-                        non_org_participants += f"{member.display_name}: {time_str}\n"
-                if org_participants:
-                    embed.add_field(name="Org Members", value=org_participants, inline=False)
-                if non_org_participants:
-                    embed.add_field(name="Non-Org Members", value=non_org_participants, inline=False)
-                if not org_participants and not non_org_participants:
-                    embed.add_field(name="Participants", value="No participants", inline=False)
-            else:
-                embed.add_field(name="Participants", value="No participants", inline=False)
-            try:
-                await log_channel.send(embed=embed)
-            except discord.errors.Forbidden:
-                print(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
 
 @bot.command()
 @has_org_role()
@@ -164,6 +128,7 @@ async def start_logging(ctx):
                 current_time = time.time()
                 for member in active_voice_channels[channel_id].members:
                     last_checks[channel_id][member.id] = current_time
+                    member_times[channel_id][member.id] = 0  # Initialize for all members
                     print(f"Started tracking {member.display_name} in {ctx.author.voice.channel.name} at {current_time}")
                 try:
                     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
@@ -193,7 +158,7 @@ async def start_logging(ctx):
                     await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
                     if not log_members.is_running():
                         log_members.start()
-                    await ctx.send(f"Bot is running and logging started for {active_voice_channels[channel_id].name} (Event: {event_name}, every 5 minutes).")
+                    await ctx.send(f"Bot is running and logging started for {active_voice_channels[channel_id].name} (Event: {event_name}, every minute).")
             else:
                 await ctx.send("Event name cannot be empty. Please try again.")
                 del active_voice_channels[channel_id]
