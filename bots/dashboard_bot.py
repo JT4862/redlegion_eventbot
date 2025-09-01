@@ -3,7 +3,7 @@ import sqlite3
 import os
 import datetime
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='/opt/render/project/src/templates')  # Explicitly set template folder
 
 @app.route('/')
 def index():
@@ -29,7 +29,7 @@ def dashboard():
         except Exception:
             continue
     conn.close()
-    return render_template('dashboard.html', labels=labels, values=values)
+    return render_template('dashboard.html', labels=labels, values=values, month=current_month)
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))

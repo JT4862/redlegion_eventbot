@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Participation Dashboard</title>
+    <title>Event Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h1>Participation Dashboard - {{ current_month }}</h1>
-    <canvas id="myChart"></canvas>
+    <h1>Participation Dashboard - {{ month }}</h1>
+    <canvas id="participationChart" width="400" height="200"></canvas>
     <script>
-        const ctx = document.getElementById('myChart').getContext('2d');
+        const ctx = document.getElementById('participationChart').getContext('2d');
         new Chart(ctx, {
             type: 'bar',
             data: {
@@ -16,14 +16,15 @@
                 datasets: [{
                     label: 'Entries',
                     data: {{ values|tojson }},
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
                     borderWidth: 1
                 }]
             },
             options: {
-                scales: { y: { beginAtZero: true } },
-                plugins: { legend: { position: 'top' } }
+                scales: {
+                    y: { beginAtZero: true }
+                }
             }
         });
     </script>

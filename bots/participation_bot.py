@@ -175,51 +175,12 @@ async def stop_logging(ctx):
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
-            if log_channel:
-                try:
-                    summary_embed = discord.Embed(
-                        title="Session Summary",
-                        description=f"**Event**: {event_names[channel_id]}\n**Channel**: {active_voice_channels[channel_id].name}",
-                        color=discord.Color.orange(),
-                        timestamp=datetime.datetime.now()
-                    )
-                    org_summary = ""
-                    non_org_summary = ""
-                    total_org = 0
-                    total_non_org = 0
-                    conn = sqlite3.connect('/data/entries.db')
-                    c = conn.cursor()
-                    for member_id, total_seconds in member_times.get(channel_id, {}).items():
-                        member = await bot.fetch_user(member_id)
-                        hours, remainder = divmod(int(total_seconds), 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        time_str = f"{hours}h {minutes}m {seconds}s"
-                        member_obj = discord.utils.get(active_voice_channels[channel_id].members, id=member_id)
-                        if member_obj and str(ORG_ROLE_ID) in [str(role.id) for role in member_obj.roles]:
-                            org_summary += f"{member.display_name}: {time_str}\n"
-                            total_org += 1
-                            c.execute("INSERT OR REPLACE INTO entries (user_id, month_year, entry_count) VALUES (?, ?, COALESCE((SELECT entry_count FROM entries WHERE user_id = ? AND month_year = ?), 0) + 1)",
-                                      (member_id, datetime.datetime.now().strftime("%B-%Y"), member_id, datetime.datetime.now().strftime("%B-%Y")))
-                        else:
-                            non_org_summary += f"{member.display_name}: {time_str}\n"
-                            total_non_org += 1
-                    if org_summary:
-                        summary_embed.add_field(name=f"Org Members ({total_org})", value=org_summary, inline=False)
-                    if non_org_summary:
-                        summary_embed.add_field(name=f"Non-Org Members ({total_org})", value=non_org_summary, inline=False)
-                    if not org_summary and not non_org_participants:
-                        summary_embed.add_field(name="Participants", value="No participants", inline=False)
-                    await log_channel.send(embed=summary_embed)
-                    c.execute("UPDATE events SET end_time = ? WHERE channel_id = ? AND end_time IS NULL",
-                              (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), channel_id))
-                    conn.commit()
-                    conn.close()
-                except discord.errors.Forbidden:
-                    await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
-                except discord.errors.HTTPException:
-                    await ctx.send("Error: Failed to fetch user data for summary.")
-            else:
-                await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
+            conn = sqlite3.connect('/data/entries.db')
+            c = conn.cursor()
+            c.execute("UPDATE events SET end_time = ? WHERE channel_id = ? AND end_time IS NULL",
+                      (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), channel_id))
+            conn.commit()
+            conn.close()
             if log_channel:
                 try:
                     embed = discord.Embed(
@@ -237,7 +198,7 @@ async def stop_logging(ctx):
             del last_checks[channel_id]
             if not active_voice_channels:
                 log_members.stop()
-            await ctx.send("Participation logging stopped for this channel.")
+            await ctx.send("Successfully stopped logging for this channel.")  # Confirmation message
         else:
             await ctx.send("No logging is active for this voice channel.")
     else:
