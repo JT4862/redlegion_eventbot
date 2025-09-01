@@ -170,7 +170,7 @@ async def stop_logging(ctx):
         if channel_id in active_voice_channels:
             current_time = time.time()
             for member_id in list(last_checks.get(channel_id, {}).keys()):
-                member = active_voice_channels[channel_id].get_member(member_id)  # Fix: Use member_id to get member
+                member = ctx.guild.get_member(member_id)  # Fixed: Use guild to get member
                 if member:
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
