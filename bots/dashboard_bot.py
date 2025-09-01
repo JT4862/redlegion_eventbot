@@ -27,7 +27,6 @@ def dashboard():
             SELECT e.event_name, e.channel_name, e.start_time, e.end_time, p.username, p.duration, p.is_org_member
             FROM events e
             JOIN participation p ON e.channel_id = p.channel_id
-            WHERE e.end_time IS NOT NULL
             ORDER BY p.is_org_member DESC, e.channel_name, e.start_time DESC
         ''')
         data = c.fetchall()
@@ -41,7 +40,7 @@ def dashboard():
                 'event_name': event_name,
                 'channel_name': channel_name,
                 'start_time': start_time,
-                'end_time': end_time or 'N/A',
+                'end_time': end_time or 'Ongoing',
                 'username': username or 'Unknown',
                 'duration': format_duration(duration),
                 'is_org_member': 'Yes' if is_org_member else 'No'
