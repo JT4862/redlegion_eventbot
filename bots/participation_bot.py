@@ -103,12 +103,13 @@ async def log_members():
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_time = time.time()
             for member_id in list(last_checks.get(channel_id, {}).keys()):
-                if bot.get_user(member_id) in active_channel.members:
+                member = bot.get_user(member_id)
+                if member in active_channel.members:
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times.setdefault(channel_id, {})
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     last_checks[channel_id][member_id] = current_time
-                    print(f"Periodic update for {bot.get_user(member_id).display_name} in {active_channel.name}: added {duration:.2f}s, total {member_times[channel_id][member_id]:.2f}s")
+                    print(f"Periodic update for {member.display_name} in {active_channel.name}: added {duration:.2f}s, total {member_times[channel_id][member_id]:.2f}s")
             embed = discord.Embed(
                 title=f"Event: {event_names[channel_id]}",
                 description=f"**Channel**: {active_channel.name}\n**Time**: {timestamp}",
@@ -214,10 +215,14 @@ async def stop_logging(ctx):
             try:
                 conn = psycopg2.connect(os.getenv("DATABASE_URL"))
                 c = conn.cursor()
-                for member_id in list(last_checks.get(channel_id, {}).keys()):
+                for member_id in list(member_times.get(channel_id, {}).keys()):
                     member = ctx.guild.get_member(member_id)
                     if member:
                         total_duration = member_times.get(channel_id, {}).get(member_id, 0)
+                        if member.id in last_checks.get(channel_id, {}):
+                            duration = current_time - last_checks[channel_id][member.id]
+                            total_duration += duration
+                            print(f"Final update for {member.display_name} in {active_voice_channels[channel_id].name}: added {duration:.2f}s, total {total_duration:.2f}s")
                         is_org_member = str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]
                         c.execute("""
                             INSERT INTO participation (channel_id, member_id, username, duration, is_org_member)
