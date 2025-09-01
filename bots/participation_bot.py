@@ -52,6 +52,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS participation (
         channel_id TEXT,
         member_id TEXT,
+        username TEXT,
         duration REAL
     )''')
     conn.commit()
@@ -190,8 +191,8 @@ async def stop_logging(ctx):
                 if member:
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
-                    c.execute("INSERT INTO participation (channel_id, member_id, duration) VALUES (%s, %s, %s)",
-                              (str(channel_id), str(member_id), duration))
+                    c.execute("INSERT INTO participation (channel_id, member_id, username, duration) VALUES (%s, %s, %s, %s)",
+                              (str(channel_id), str(member_id), member.display_name, duration))
             c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
                       (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
             conn.commit()
