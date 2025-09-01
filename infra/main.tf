@@ -38,6 +38,7 @@ resource "render_web_service" "dashboard_bot" {
   name               = "dashboard-bot"
   plan               = "starter"
   region             = "oregon"
+  environment_id = var.dev_environment_id  # Assign to Dev environment
 
   start_command      = "gunicorn bots/dashboard_bot:app --bind 0.0.0.0:$PORT"
 
