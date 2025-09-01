@@ -15,8 +15,8 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 LOG_CHANNEL_ID = os.getenv('TEXT_CHANNEL_ID')
 if not LOG_CHANNEL_ID:
     raise ValueError("TEXT_CHANNEL_ID environment variable not set")
-ORG_ROLE_ID = "1143413611184795658"
 
+ORG_ROLE_ID = "1143413611184795658"
 active_voice_channels = {}
 event_names = {}
 member_times = {}
@@ -145,7 +145,7 @@ async def start_logging(ctx):
                     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
                     c = conn.cursor()
                     c.execute("INSERT INTO events (channel_id, event_name, start_time) VALUES (%s, %s, %s)",
-                              (channel_id, event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                              (str(channel_id), event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
                     conn.close()
                     log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
@@ -191,9 +191,9 @@ async def stop_logging(ctx):
                     duration = current_time - last_checks[channel_id][member_id]
                     member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
                     c.execute("INSERT INTO participation (channel_id, member_id, duration) VALUES (%s, %s, %s)",
-                              (channel_id, str(member_id), duration))
-            c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s AND end_time IS NULL",
-                      (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), channel_id))
+                              (str(channel_id), str(member_id), duration))
+            c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
+                      (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
             conn.commit()
             conn.close()
             log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
