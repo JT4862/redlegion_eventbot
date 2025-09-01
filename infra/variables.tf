@@ -23,7 +23,7 @@ variable "text_channel_id" {
 variable "github_repo" {
   description = "GitHub repository URL"
   type        = string
-  default     = "https://github.com/your-username/your-repo"  # Replace with your repo
+  default     = "https://github.com/your-username/your-repo" # Replace with your repo
 }
 
 variable "dev_environment_id" {

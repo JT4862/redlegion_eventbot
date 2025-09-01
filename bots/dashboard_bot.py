@@ -1,34 +1,51 @@
 from flask import Flask, render_template, redirect
-import sqlite3
+import psycopg2
 import os
 import datetime
 
-app = Flask(__name__, template_folder='/opt/render/project/src/templates')  # Explicitly set template folder
+app = Flask(__name__, template_folder='/opt/render/project/src/templates')
 
 @app.route('/')
 def index():
-    return redirect('/dashboard', code=302)  # Redirect root to /dashboard
+    return redirect('/dashboard', code=302)
 
 @app.route('/dashboard')
 def dashboard():
-    conn = sqlite3.connect('/data/entries.db')
-    c = conn.cursor()
-    # Create table if it doesn't exist
-    c.execute('''CREATE TABLE IF NOT EXISTS entries 
-                 (user_id TEXT PRIMARY KEY, month_year TEXT, entry_count INTEGER DEFAULT 0)''')
-    current_month = datetime.datetime.now().strftime("%B-%Y")
-    c.execute("SELECT user_id, SUM(entry_count) as total FROM entries WHERE month_year = ? GROUP BY user_id ORDER BY total DESC", (current_month,))
-    data = c.fetchall()
-    labels = []
-    values = []
-    for user_id, total in data:
-        try:
-            # Fetch display name (simplified, adjust with bot if needed)
-            labels.append("User_" + user_id[-4:])  # Placeholder, improve with bot fetch
-            values.append(total)
-        except Exception:
-            continue
-    conn.close()
+    try:
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        c = conn.cursor()
+        current_month = datetime.datetime.now().strftime("%B-%Y")
+        # Fetch events for the current month
+        c.execute("SELECT channel_id, event_name, start_time FROM events WHERE to_char(to_timestamp(start_time, 'YYYY-MM-DD HH24:MI:SS'), 'Month-YYYY') = %s", (current_month,))
+        events = c.fetchall()
+        # Fetch participation data
+        c.execute("SELECT channel_id, member_id, duration FROM participation")
+        participation = c.fetchall()
+        conn.close()
+
+        # Aggregate participation data by user
+        user_totals = {}
+        for event in events:
+            channel_id, _, start_time = event
+            if datetime.datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").strftime("%B-%Y") != current_month:
+                continue
+            for p in participation:
+                if p[0] == channel_id:
+                    member_id, duration = p[1], p[2]
+                    user_totals[member_id] = user_totals.get(member_id, 0) + duration
+
+        labels = []
+        values = []
+        for member_id, total in sorted(user_totals.items(), key=lambda x: x[1], reverse=True):
+            try:
+                labels.append(f"User_{member_id[-4:]}")  # Placeholder for display name
+                values.append(total / 60)  # Convert seconds to minutes
+            except Exception:
+                continue
+    except psycopg2.OperationalError as e:
+        print(f"Database error: {e}")
+        labels, values = [], []
+
     return render_template('dashboard.html', labels=labels, values=values, month=current_month)
 
 if __name__ == '__main__':
