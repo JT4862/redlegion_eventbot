@@ -1,9 +1,13 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, redirect
 import sqlite3
 import os
 import datetime
 
 app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return redirect('/dashboard', code=302)  # Redirect root to /dashboard
 
 @app.route('/dashboard')
 def dashboard():

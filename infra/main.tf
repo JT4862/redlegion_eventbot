@@ -40,7 +40,7 @@ resource "render_web_service" "dashboard_bot" {
   region             = "oregon"
   environment_id = var.dev_environment_id  # Assign to Dev environment
 
-  start_command      = "/opt/render/project/src/.venv/bin/python -m gunicorn bots/dashboard_bot:app --bind 0.0.0.0:$PORT"
+  start_command      = "python bots/dashboard_bot.py"
 
   runtime_source = {
     native_runtime = {
