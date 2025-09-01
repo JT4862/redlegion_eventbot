@@ -5,6 +5,7 @@ import time
 import os
 import asyncio
 import sqlite3
+import random
 
 intents = discord.Intents.default()
 intents.members = True
@@ -15,7 +16,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 LOG_CHANNEL_ID = os.getenv('TEXT_CHANNEL_ID')
 if not LOG_CHANNEL_ID:
     raise ValueError("TEXT_CHANNEL_ID environment variable not set")
-ORG_ROLE_ID = "1143413611184795658"  # OrgMember role ID
+ORG_ROLE_ID = "1143413611184795658"  # Reverted to original role ID
 
 active_voice_channels = {}
 event_names = {}
@@ -35,7 +36,6 @@ def has_org_role():
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
-    # Initialize SQLite
     conn = sqlite3.connect('/data/entries.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS entries 
@@ -126,7 +126,6 @@ async def start_logging(ctx):
                     current_time = time.time()
                     for member in active_voice_channels[channel_id].members:
                         last_checks[channel_id][member.id] = current_time
-                    # Log event start
                     conn = sqlite3.connect('/data/entries.db')
                     c = conn.cursor()
                     c.execute("INSERT INTO events (channel_id, event_name, start_time) VALUES (?, ?, ?)",
@@ -166,6 +165,7 @@ async def start_logging(ctx):
 async def stop_logging(ctx):
     if ctx.author.voice and ctx.author.voice.channel:
         channel_id = ctx.author.voice.channel.id
+        print(f"Active channels: {active_voice_channels}")  # Debug output
         if channel_id in active_voice_channels:
             current_time = time.time()
             for member_id in list(last_checks.get(channel_id, {}).keys()):
@@ -196,7 +196,6 @@ async def stop_logging(ctx):
                         if member_obj and str(ORG_ROLE_ID) in [str(role.id) for role in member_obj.roles]:
                             org_summary += f"{member.display_name}: {time_str}\n"
                             total_org += 1
-                            # Increment entry for org member
                             c.execute("INSERT OR REPLACE INTO entries (user_id, month_year, entry_count) VALUES (?, ?, COALESCE((SELECT entry_count FROM entries WHERE user_id = ? AND month_year = ?), 0) + 1)",
                                       (member_id, datetime.datetime.now().strftime("%B-%Y"), member_id, datetime.datetime.now().strftime("%B-%Y")))
                         else:
@@ -206,7 +205,7 @@ async def stop_logging(ctx):
                         summary_embed.add_field(name=f"Org Members ({total_org})", value=org_summary, inline=False)
                     if non_org_summary:
                         summary_embed.add_field(name=f"Non-Org Members ({total_non_org})", value=non_org_summary, inline=False)
-                    if not org_summary and not non_org_summary:
+                    if not org_summary and not non_org_participants:
                         summary_embed.add_field(name="Participants", value="No participants", inline=False)
                     await log_channel.send(embed=summary_embed)
                     c.execute("UPDATE events SET end_time = ? WHERE channel_id = ? AND end_time IS NULL",
@@ -242,13 +241,15 @@ async def stop_logging(ctx):
     else:
         await ctx.send("You must be in a voice channel to stop logging.")
 
-# Custom check for role-based command permission
-def has_org_role():
-    def predicate(ctx):
-        role = discord.utils.get(ctx.author.roles, id=int(ORG_ROLE_ID))
-        if not role:
-            raise commands.MissingPermissions("You need the OrgMember role to use this command.")
-        return True
-    return commands.check(predicate)
-
-bot.run(os.getenv('DISCORD_TOKEN'))
+@bot.command()
+@has_org_role()
+async def pick_winner(ctx):
+    conn = sqlite3.connect('/data/entries.db')
+    c = conn.cursor()
+    current_month = datetime.datetime.now().strftime("%B-%Y")
+    c.execute("SELECT user_id, entry_count FROM entries WHERE month_year = ?", (current_month,))
+    entries = c.fetchall()
+    if not entries:
+        await ctx.send("No entries available for this month.")
+        conn.close()
+        return
