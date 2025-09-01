@@ -13,6 +13,9 @@ def index():
 def dashboard():
     conn = sqlite3.connect('/data/entries.db')
     c = conn.cursor()
+    # Create table if it doesn't exist
+    c.execute('''CREATE TABLE IF NOT EXISTS entries 
+                 (user_id TEXT PRIMARY KEY, month_year TEXT, entry_count INTEGER DEFAULT 0)''')
     current_month = datetime.datetime.now().strftime("%B-%Y")
     c.execute("SELECT user_id, SUM(entry_count) as total FROM entries WHERE month_year = ? GROUP BY user_id ORDER BY total DESC", (current_month,))
     data = c.fetchall()
