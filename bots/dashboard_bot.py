@@ -24,7 +24,7 @@ def dashboard():
         conn = get_db_connection()
         c = conn.cursor()
         c.execute('''
-            SELECT e.event_name, e.channel_name, e.start_time, e.end_time, p.username, p.duration
+            SELECT e.event_name, e.channel_name, e.start_time, e.end_time, p.username, p.duration, p.is_org_member
             FROM events e
             JOIN participation p ON e.channel_id = p.channel_id
             WHERE e.end_time IS NOT NULL
@@ -36,14 +36,15 @@ def dashboard():
         # Format data for display
         events = []
         for row in data:
-            event_name, channel_name, start_time, end_time, username, duration = row
+            event_name, channel_name, start_time, end_time, username, duration, is_org_member = row
             events.append({
                 'event_name': event_name,
                 'channel_name': channel_name,
                 'start_time': start_time,
                 'end_time': end_time or 'N/A',
                 'username': username or 'Unknown',
-                'duration': format_duration(duration)
+                'duration': format_duration(duration),
+                'is_org_member': 'Yes' if is_org_member else 'No'
             })
         return render_template('dashboard.html', events=events)
     except psycopg2.OperationalError as e:

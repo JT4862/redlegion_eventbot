@@ -18,6 +18,7 @@
                     <th>Start Date/Time</th>
                     <th>End Date/Time</th>
                     <th>Username</th>
+                    <th>Org Member</th>
                     <th>Active Time</th>
                 </tr>
             </thead>
@@ -29,6 +30,7 @@
                     <td>{{ event.start_time }}</td>
                     <td>{{ event.end_time }}</td>
                     <td>{{ event.username }}</td>
+                    <td>{{ event.is_org_member }}</td>
                     <td>{{ event.duration }}</td>
                 </tr>
                 {% endfor %}
