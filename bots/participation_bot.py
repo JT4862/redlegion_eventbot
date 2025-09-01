@@ -5,6 +5,7 @@ import time
 import os
 import asyncio
 import psycopg2
+import random
 
 intents = discord.Intents.default()
 intents.members = True
@@ -53,7 +54,8 @@ def init_db():
         channel_id TEXT,
         member_id TEXT,
         username TEXT,
-        duration REAL
+        duration REAL,
+        UNIQUE (channel_id, member_id)
     )''')
     conn.commit()
     conn.close()
@@ -189,10 +191,18 @@ async def stop_logging(ctx):
             for member_id in list(last_checks.get(channel_id, {}).keys()):
                 member = ctx.guild.get_member(member_id)
                 if member:
-                    duration = current_time - last_checks[channel_id][member_id]
-                    member_times[channel_id][member_id] = member_times.get(channel_id, {}).get(member_id, 0) + duration
-                    c.execute("INSERT INTO participation (channel_id, member_id, username, duration) VALUES (%s, %s, %s, %s)",
-                              (str(channel_id), str(member_id), member.display_name, duration))
+                    # Use total accumulated duration from member_times
+                    total_duration = member_times.get(channel_id, {}).get(member_id, 0)
+                    # Add final segment if member is still in channel
+                    if member.id in last_checks.get(channel_id, {}):
+                        final_duration = current_time - last_checks[channel_id][member_id]
+                        total_duration += final_duration
+                    c.execute("""
+                        INSERT INTO participation (channel_id, member_id, username, duration)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (channel_id, member_id)
+                        DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username
+                    """, (str(channel_id), str(member_id), member.display_name, total_duration))
             c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
                       (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
             conn.commit()
@@ -229,13 +239,23 @@ async def pick_winner(ctx):
     current_month = datetime.datetime.now().strftime("%B-%Y")
     c.execute("SELECT user_id, entry_count FROM entries WHERE month_year = %s", (current_month,))
     entries = c.fetchall()
+    conn.close()
     if not entries:
         await ctx.send("No entries available for this month.")
-        conn.close()
         return
-    winner_id = max(entries, key=lambda x: x[1])[0]
+    candidates = []
+    weights = []
+    for user_id, entry_count in entries:
+        member = ctx.guild.get_member(int(user_id))
+        if member and str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]:
+            candidates.append(user_id)
+            weights.append(entry_count)
+    if not candidates:
+        await ctx.send("No org members with entries this month.")
+        return
+    winner_id = random.choices(candidates, weights=weights)[0]
     winner = await bot.fetch_user(int(winner_id))
-    await ctx.send(f"Congratulations {winner.display_name}! You are the winner for {current_month} with {max(entries, key=lambda x: x[1])[1]} entries!")
-    conn.close()
+    winner_count = dict(zip(candidates, weights))[winner_id]
+    await ctx.send(f"Congratulations {winner.display_name}! You are the winner for {current_month} with {winner_count} entries!")
 
 bot.run(os.getenv('DISCORD_TOKEN'))
