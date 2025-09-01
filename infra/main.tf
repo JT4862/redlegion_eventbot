@@ -44,7 +44,7 @@ resource "render_web_service" "dashboard_bot" {
 
   runtime_source = {
     native_runtime = {
-      auto_deploy   = false
+      auto_deploy   = true
       branch        = "feature/dual-bots-sqlite"
       build_command = "pip install -r requirements.txt"
       repo_url      = var.github_repo
