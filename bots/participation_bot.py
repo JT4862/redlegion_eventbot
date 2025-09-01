@@ -22,7 +22,6 @@ active_voice_channels = {}
 event_names = {}
 member_times = {}
 last_checks = {}
-start_logging_lock = asyncio.Lock()
 
 # Custom check for role-based command permission
 def has_org_role():
@@ -86,7 +85,7 @@ async def log_members():
     if not log_channel:
         print(f"Text channel ID {LOG_CHANNEL_ID} not found")
         return
-    for channel_id, active_channel in active_voice_channels.items():
+    for channel_id, active_channel in list(active_voice_channels.items()):
         if active_channel and channel_id in event_names:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_time = time.time()
@@ -130,54 +129,57 @@ async def log_members():
 @bot.command()
 @has_org_role()
 async def start_logging(ctx):
-    async with start_logging_lock:
-        if ctx.author.voice and ctx.author.voice.channel:
-            channel_id = ctx.author.voice.channel.id
-            active_voice_channels[channel_id] = ctx.author.voice.channel
-            await ctx.send("Please provide the event name for this logging session.")
-            def check(m):
-                return m.author == ctx.author and m.channel == ctx.channel
-            try:
-                msg = await bot.wait_for('message', check=check, timeout=60.0)
-                event_name = msg.content.strip()
-                if event_name:
-                    event_names[channel_id] = event_name
-                    member_times[channel_id] = {}
-                    last_checks[channel_id] = {}
-                    current_time = time.time()
-                    for member in active_voice_channels[channel_id].members:
-                        last_checks[channel_id][member.id] = current_time
-                    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-                    c = conn.cursor()
-                    c.execute("INSERT INTO events (channel_id, channel_name, event_name, start_time) VALUES (%s, %s, %s, %s)",
-                              (str(channel_id), ctx.author.voice.channel.name, event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
-                    conn.close()
-                    log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
-                    if log_channel:
-                        try:
-                            embed = discord.Embed(
-                                title="Logging Started",
-                                description=f"**Event**: {event_name}\n**Channel**: {active_voice_channels[channel_id].name}",
-                                color=discord.Color.green(),
-                                timestamp=datetime.datetime.now()
-                            )
-                            await log_channel.send(embed=embed)
-                        except discord.errors.Forbidden:
-                            await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
-                            return
-                    else:
-                        await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
+    if ctx.author.voice and ctx.author.voice.channel:
+        channel_id = ctx.author.voice.channel.id
+        if channel_id in active_voice_channels:
+            await ctx.send(f"Logging is already active for {ctx.author.voice.channel.name}.")
+            return
+        active_voice_channels[channel_id] = ctx.author.voice.channel
+        await ctx.send("Please provide the event name for this logging session.")
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel
+        try:
+            msg = await bot.wait_for('message', check=check, timeout=60.0)
+            event_name = msg.content.strip()
+            if event_name:
+                event_names[channel_id] = event_name
+                member_times[channel_id] = {}
+                last_checks[channel_id] = {}
+                current_time = time.time()
+                for member in active_voice_channels[channel_id].members:
+                    last_checks[channel_id][member.id] = current_time
+                conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+                c = conn.cursor()
+                c.execute("INSERT INTO events (channel_id, channel_name, event_name, start_time) VALUES (%s, %s, %s, %s)",
+                          (str(channel_id), ctx.author.voice.channel.name, event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                conn.commit()
+                conn.close()
+                log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
+                if log_channel:
+                    try:
+                        embed = discord.Embed(
+                            title="Logging Started",
+                            description=f"**Event**: {event_name}\n**Channel**: {active_voice_channels[channel_id].name}",
+                            color=discord.Color.green(),
+                            timestamp=datetime.datetime.now()
+                        )
+                        await log_channel.send(embed=embed)
+                    except discord.errors.Forbidden:
+                        await ctx.send(f"Error: Bot lacks permission to send messages to channel {LOG_CHANNEL_ID}")
+                        return
+                else:
+                    await ctx.send(f"Text channel ID {LOG_CHANNEL_ID} not found")
                     if not log_members.is_running():
                         log_members.start()
                     await ctx.send(f"Bot is running and logging started for {active_voice_channels[channel_id].name} (Event: {event_name}, every 5 minutes).")
-                else:
-                    await ctx.send("Event name cannot be empty. Please try again.")
-            except discord.ext.commands.errors.CommandInvokeError:
-                await ctx.send("Timed out waiting for event name. Please try again.")
+            else:
+                await ctx.send("Event name cannot be empty. Please try again.")
                 del active_voice_channels[channel_id]
-        else:
-            await ctx.send("You must be in a voice channel to start logging.")
+        except discord.ext.commands.errors.CommandInvokeError:
+            await ctx.send("Timed out waiting for event name. Please try again.")
+            del active_voice_channels[channel_id]
+    else:
+        await ctx.send("You must be in a voice channel to start logging.")
 
 @bot.command()
 @has_org_role()
