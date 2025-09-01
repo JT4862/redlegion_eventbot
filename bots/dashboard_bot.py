@@ -24,11 +24,11 @@ def dashboard():
         conn = get_db_connection()
         c = conn.cursor()
         c.execute('''
-            SELECT e.event_name, e.start_time, e.end_time, p.username, p.duration
+            SELECT e.event_name, e.channel_name, e.start_time, e.end_time, p.username, p.duration
             FROM events e
             JOIN participation p ON e.channel_id = p.channel_id
             WHERE e.end_time IS NOT NULL
-            ORDER BY e.start_time DESC
+            ORDER BY e.channel_name, e.start_time DESC
         ''')
         data = c.fetchall()
         conn.close()
@@ -36,9 +36,10 @@ def dashboard():
         # Format data for display
         events = []
         for row in data:
-            event_name, start_time, end_time, username, duration = row
+            event_name, channel_name, start_time, end_time, username, duration = row
             events.append({
                 'event_name': event_name,
+                'channel_name': channel_name,
                 'start_time': start_time,
                 'end_time': end_time or 'N/A',
                 'username': username or 'Unknown',

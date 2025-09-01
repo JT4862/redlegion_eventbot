@@ -13,6 +13,7 @@
         <table class="table table-striped table-bordered">
             <thead class="table-dark">
                 <tr>
+                    <th>Channel Name</th>
                     <th>Event Name</th>
                     <th>Start Date/Time</th>
                     <th>End Date/Time</th>
@@ -23,6 +24,7 @@
             <tbody>
                 {% for event in events %}
                 <tr>
+                    <td>{{ event.channel_name }}</td>
                     <td>{{ event.event_name }}</td>
                     <td>{{ event.start_time }}</td>
                     <td>{{ event.end_time }}</td>

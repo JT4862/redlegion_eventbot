@@ -46,6 +46,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS events (
         event_id SERIAL PRIMARY KEY,
         channel_id TEXT,
+        channel_name TEXT,
         event_name TEXT,
         start_time TEXT,
         end_time TEXT
@@ -55,6 +56,7 @@ def init_db():
         member_id TEXT,
         username TEXT,
         duration REAL,
+        is_org_member BOOLEAN,
         UNIQUE (channel_id, member_id)
     )''')
     conn.commit()
@@ -147,8 +149,8 @@ async def start_logging(ctx):
                         last_checks[channel_id][member.id] = current_time
                     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
                     c = conn.cursor()
-                    c.execute("INSERT INTO events (channel_id, event_name, start_time) VALUES (%s, %s, %s)",
-                              (str(channel_id), event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                    c.execute("INSERT INTO events (channel_id, channel_name, event_name, start_time) VALUES (%s, %s, %s, %s)",
+                              (str(channel_id), ctx.author.voice.channel.name, event_name, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
                     conn.close()
                     log_channel = bot.get_channel(int(LOG_CHANNEL_ID))
@@ -191,18 +193,17 @@ async def stop_logging(ctx):
             for member_id in list(last_checks.get(channel_id, {}).keys()):
                 member = ctx.guild.get_member(member_id)
                 if member:
-                    # Use total accumulated duration from member_times
                     total_duration = member_times.get(channel_id, {}).get(member_id, 0)
-                    # Add final segment if member is still in channel
                     if member.id in last_checks.get(channel_id, {}):
                         final_duration = current_time - last_checks[channel_id][member_id]
                         total_duration += final_duration
+                    is_org_member = str(ORG_ROLE_ID) in [str(role.id) for role in member.roles]
                     c.execute("""
-                        INSERT INTO participation (channel_id, member_id, username, duration)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO participation (channel_id, member_id, username, duration, is_org_member)
+                        VALUES (%s, %s, %s, %s, %s)
                         ON CONFLICT (channel_id, member_id)
-                        DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username
-                    """, (str(channel_id), str(member_id), member.display_name, total_duration))
+                        DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username, is_org_member = EXCLUDED.is_org_member
+                    """, (str(channel_id), str(member_id), member.display_name, total_duration, is_org_member))
             c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
                       (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
             conn.commit()
