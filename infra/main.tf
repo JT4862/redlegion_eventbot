@@ -8,7 +8,7 @@ resource "render_background_worker" "participation_bot" {
 
   runtime_source = {
     native_runtime = {
-      auto_deploy   = false
+      auto_deploy   = true
       branch        = "feature/dual-bots-sqlite"
       build_command = "pip install -r requirements.txt"
       repo_url      = var.github_repo
@@ -40,7 +40,7 @@ resource "render_web_service" "dashboard_bot" {
   region             = "oregon"
   environment_id = var.dev_environment_id  # Assign to Dev environment
 
-  start_command      = "gunicorn bots/dashboard_bot:app --bind 0.0.0.0:$PORT"
+  start_command      = "/opt/render/project/src/.venv/bin/python -m gunicorn bots/dashboard_bot:app --bind 0.0.0.0:$PORT"
 
   runtime_source = {
     native_runtime = {
