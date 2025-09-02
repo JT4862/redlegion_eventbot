@@ -79,12 +79,10 @@ async def on_voice_state_update(member, before, after):
         if active_channel:
             current_time = time.time()
             if after.channel == active_channel and before.channel != active_channel:
-                # Member joins the active channel
                 last_checks.setdefault(channel_id, {})
                 last_checks[channel_id][member.id] = current_time
                 print(f"Member {member.display_name} joined channel {active_channel.name} at {current_time}")
             elif before.channel == active_channel and after.channel != active_channel:
-                # Member leaves the active channel
                 if member.id in last_checks.get(channel_id, {}):
                     duration = current_time - last_checks[channel_id][member.id]
                     member_times.setdefault(channel_id, {})
@@ -142,7 +140,7 @@ async def start_logging(ctx):
                 current_time = time.time()
                 for member in active_voice_channels[channel_id].members:
                     last_checks[channel_id][member.id] = current_time
-                    member_times[channel_id][member.id] = 0  # Initialize for all members
+                    member_times[channel_id][member.id] = 0
                     print(f"Started tracking {member.display_name} in {ctx.author.voice.channel.name} at {current_time}")
                 try:
                     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
@@ -250,8 +248,10 @@ async def stop_logging(ctx):
         await ctx.send("You must be in a voice channel to stop logging.")
 
 @bot.command()
+@commands.cooldown(1, 30, commands.BucketType.guild)  # 1 use per 30 seconds per guild
 @has_org_role()
 async def pick_winner(ctx):
+    print(f"pick_winner invoked by {ctx.author.display_name} at {datetime.datetime.now()}")
     try:
         conn = psycopg2.connect(os.getenv("DATABASE_URL"))
         c = conn.cursor()
@@ -277,7 +277,6 @@ async def pick_winner(ctx):
         return
     winner_id = random.choices(candidates, weights=weights)[0]
     winner = await bot.fetch_user(int(winner_id))
-    winner_count = dict(zip(candidates, weights))[winner_id]
-    await ctx.send(f"Congratulations {winner.display_name}! You are the winner for {current_month} with {winner_count} entries!")
+    await ctx.send(f"Congratulations {winner.display_name}! You are the winner for {current_month}!")
 
 bot.run(os.getenv('DISCORD_TOKEN'))
