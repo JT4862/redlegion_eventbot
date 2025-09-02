@@ -277,6 +277,6 @@ async def pick_winner(ctx):
         return
     winner_id = random.choices(candidates, weights=weights)[0]
     winner = await bot.fetch_user(int(winner_id))
-    await ctx.send(f"Congratulations {winner.display_name}! You are the winner for {current_month}!")
+    await ctx.send(f"TEST ONLY | Congratulations {winner.display_name}! You are the winner for {current_month} org raffle!")
 
 bot.run(os.getenv('DISCORD_TOKEN'))
