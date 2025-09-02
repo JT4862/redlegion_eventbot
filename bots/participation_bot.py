@@ -191,6 +191,7 @@ async def stop_logging(ctx):
         print(f"Channel ID: {channel_id}")
         if channel_id in active_voice_channels:
             current_time = time.time()
+            current_month = datetime.datetime.now().strftime("%B-%Y")
             try:
                 conn = psycopg2.connect(os.getenv("DATABASE_URL"))
                 c = conn.cursor()
@@ -210,6 +211,13 @@ async def stop_logging(ctx):
                             DO UPDATE SET duration = EXCLUDED.duration, username = EXCLUDED.username, is_org_member = EXCLUDED.is_org_member
                         """, (str(channel_id), str(member_id), member.display_name, total_duration, is_org_member))
                         print(f"Saved {member.display_name} in {active_voice_channels[channel_id].name} with total duration {total_duration:.2f}s")
+                        # Update entries table
+                        c.execute("""
+                            INSERT INTO entries (user_id, month_year, entry_count)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (user_id, month_year)
+                            DO UPDATE SET entry_count = entries.entry_count + 1
+                        """, (str(member_id), current_month, 1))
                 c.execute("UPDATE events SET end_time = %s WHERE channel_id = %s::text AND end_time IS NULL",
                           (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(channel_id)))
                 conn.commit()
